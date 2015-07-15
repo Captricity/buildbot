@@ -17,13 +17,15 @@ If this method is present, then the step is a new-style step.
 Summary of Changes
 ++++++++++++++++++
 
- * New-style steps have a ``run`` method that is simpler to implement than the old ``start`` method.
- * Many methods are now asynchronous (return Deferreds), as they perform operations on the database.
- * Logs are now implemented by a completely different class.
-   This class supports the same log-writing methods (``addStderr`` and so on), although they are now asynchronous.
-   However, it does not support log-reading methods such as ``getText``.
-   It was never advisable to handle logs as enormous strings.
-   New-style steps should, instead, use a LogObserver or (in Buildbot-0.9.0) fetch log lines bit by bit using the data API.
+* New-style steps have a ``run`` method that is simpler to implement than the old ``start`` method.
+* Many methods are now asynchronous (return Deferreds), as they perform operations on the database.
+* Logs are now implemented by a completely different class.
+  This class supports the same log-writing methods (``addStderr`` and so on), although they are now asynchronous.
+  However, it does not support log-reading methods such as ``getText``.
+  It was never advisable to handle logs as enormous strings.
+  New-style steps should, instead, use a LogObserver or (in Buildbot-0.9.0) fetch log lines bit by bit using the data API.
+* :py:class:`buildbot.process.buildstep.LoggingBuildStep` is deprecated and cannot be uesd in new-style steps.
+  Mix in :py:class:`buildbot.process.buildstep.ShellMixin` instead.
 
 Rewriting ``start``
 +++++++++++++++++++
@@ -32,8 +34,7 @@ If your custom buildstep implements the ``start`` method, then rename that metho
 The value of the Deferred should be the result of the step (one of the codes in :py:mod:`buildbot.status.results`), or a Twisted failure instance to complete the step as EXCEPTION.
 The new ``run`` method should *not* call ``self.finished`` or ``self.failed``, instead signalling the same via Deferred.
 
-For example, the following old-style ``start`` method ::
-
+For example, the following old-style ``start`` method::
 
     def start(self):  ## old style
         cmd = remotecommand.RemoteCommand('stat', {'file': self.file })
@@ -41,7 +42,7 @@ For example, the following old-style ``start`` method ::
         d.addCallback(lambda res: self.convertResult(cmd))
         d.addErrback(self.failed)
 
-Becomes ::
+Becomes::
 
     @defer.inlineCallbacks
     def run(self):  ## new style
@@ -54,23 +55,22 @@ Newly Asynchronous Methods
 
 The following methods now return a Deferred:
 
- * :py:meth:`buildbot.process.buildstep.BuildStep.addLog`
- * ``log.addStdout``
- * ``log.addStderr``
- * ``log.addHeader``
- * ``log.finish`` (see "Log Objects", below)
- * :py:meth:`buildbot.process.remotecommand.RemoteCommand.addStdout`
- * :py:meth:`buildbot.process.remotecommand.RemoteCommand.addStderr`
- * :py:meth:`buildbot.process.remotecommand.RemoteCommand.addHeader`
- * :py:meth:`buildbot.process.remotecommand.RemoteCommand.addToLog`
- * :py:meth:`buildbot.process.buildstep.BuildStep.addCompleteLog`
- * :py:meth:`buildbot.process.buildstep.BuildStep.addHTMLLog`
- * :py:meth:`buildbot.process.buildstep.BuildStep.addURL`
- * :py:meth:`buildbot.process.buildstep.LoggingBuildStep.setStatus`
+* :py:meth:`buildbot.process.buildstep.BuildStep.addLog`
+* ``log.addStdout``
+* ``log.addStderr``
+* ``log.addHeader``
+* ``log.finish`` (see "Log Objects", below)
+* :py:meth:`buildbot.process.remotecommand.RemoteCommand.addStdout`
+* :py:meth:`buildbot.process.remotecommand.RemoteCommand.addStderr`
+* :py:meth:`buildbot.process.remotecommand.RemoteCommand.addHeader`
+* :py:meth:`buildbot.process.remotecommand.RemoteCommand.addToLog`
+* :py:meth:`buildbot.process.buildstep.BuildStep.addCompleteLog`
+* :py:meth:`buildbot.process.buildstep.BuildStep.addHTMLLog`
+* :py:meth:`buildbot.process.buildstep.BuildStep.addURL`
 
 Any custom code in a new-style step that calls these methods must handle the resulting Deferred.
 In some cases, that means that the calling method's signature will change.
-For example ::
+For example::
 
     def summarize(self):  ## old-style
         for m in self.MESSAGES:
@@ -105,26 +105,26 @@ Log Objects
 Old steps had two ways of interacting with logfiles, both of which have changed.
 
 The first is writing to logs while a step is executing.
-When using :py:meth:`buildbot.process.buildstep.BuildStep.addCompleteLog` or :py:meth:`buildbot.process.buildstep.BuildStep.addHTMLLog`, this is straightforward, except that in new-style steps the methods return a Deferred.
+When using :py:meth:`~buildbot.process.buildstep.BuildStep.addCompleteLog` or :py:meth:`~buildbot.process.buildstep.BuildStep.addHTMLLog`, this is straightforward, except that in new-style steps these methods return a Deferred.
 
 The second method is via :py:meth:`buildbot.process.buildstep.BuildStep.addLog`.
 In new-style steps, the returned object (via Deferred) has the following methods to add log content:
 
- * :py:meth:`~buildbot.process.log.StreamLog.addStdout`
- * :py:meth:`~buildbot.process.log.StreamLog.addStderr`
- * :py:meth:`~buildbot.process.log.StreamLog.addHeader`
- * :py:meth:`~buildbot.process.log.Log.finish`
+* :py:meth:`~buildbot.process.log.StreamLog.addStdout`
+* :py:meth:`~buildbot.process.log.StreamLog.addStderr`
+* :py:meth:`~buildbot.process.log.StreamLog.addHeader`
+* :py:meth:`~buildbot.process.log.Log.finish`
 
 All of these methods now return Deferreds.
-Note that the log-reading methods are not available on this object:
+None of the old log-reading methods are available on this object:
 
- * ``hasContents``
- * ``getText``
- * ``readLines``
- * ``getTextWithHeaders``
- * ``getChunks``
+* ``hasContents``
+* ``getText``
+* ``readLines``
+* ``getTextWithHeaders``
+* ``getChunks``
 
-If your step uses such methods, consider using a LogObserver instead, or using the Data API to get the required data.
+If your step uses such methods, consider using a :class:`~buildbot.process.logobserver.LogObserver` instead, or using the Data API to get the required data.
 
 The undocumented and unused ``subscribeConsumer`` method of logfiles has also been removed.
 
@@ -132,20 +132,19 @@ The :py:meth:`~buildbot.process.log.Log.subscribe` method now takes a callable, 
 This method was primarily used by :py:class:`~buildbot.process.logobserver.LogObserver`, the implementation of which has been modified accordingly.
 Any other uses of the subscribe method should be refactored to use a :py:class:`~buildbot.process.logobserver.LogObserver`.
 
-Removed Methods
-+++++++++++++++
-
-Similarly, the :py:class:`~buildbot.process.buildstep.LoggingBuildStep` ``createSummary`` method has been removed, as its ``log`` argument was an instance of a class that is no longer present.
-Instead, process logs in the ``evaluateCommand`` method using the Data API, or implement a log observer.
-
-:py:class:`~buildbot.process.buildstep.LoggingBuildStep`'s undocumented ``setStatus`` method has also been removed.
-Again, set the status in ``evaluateCommand`` if the default implementation is inadequate.
+Status Strings
+++++++++++++++
 
 The ``self.step_status.setText`` and ``setText2`` methods have been removed.
-Replace them with asynchronous calls to ``self.setStatusStrings``.
+Similarly, the ``_describe`` and ``describe`` methods are not used in new-style steps.
+In fact, steps no longer set their status directly.
+
+Instead, steps call :py:meth:`buildbot.process.buildstep.BuildStep.updateSummary` whenever the status may have changed.
+This method calls :py:meth:`~buildbot.process.buildstep.BuildStep.getCurrentSummary` or :py:meth:`~buildbot.process.buildstep.BuildStep.getResultSummary` as appropriate and update displays of the step's status.
+Steps override the latter two methods to provide appropriate summaries.
+
+Statistics
+++++++++++
 
 Support for statistics has been moved to the ``BuildStep`` and ``Build`` objects.
 Calls to ``self.step_status.setStatistic`` should be rewritten as ``self.setStatistic``.
-
-The ``log_eval_func`` method of :bb:step:`ShellCommand` has been removed.
-Instead, users should override the :py:meth:`~buildbot.process.buildstep.LoggingBuildStep.evaluateCommand` method.

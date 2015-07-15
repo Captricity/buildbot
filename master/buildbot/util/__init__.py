@@ -16,6 +16,7 @@
 
 import calendar
 import datetime
+import locale
 import re
 import string
 import time
@@ -201,6 +202,35 @@ def datetime2epoch(dt):
         return calendar.timegm(dt.utctimetuple())
 
 
+# TODO: maybe "merge" with formatInterval?
+def human_readable_delta(start, end):
+    """
+    Return a string of human readable time delta.
+    """
+    start_date = datetime.datetime.fromtimestamp(start)
+    end_date = datetime.datetime.fromtimestamp(end)
+    delta = end_date - start_date
+
+    result = []
+    if delta.days > 0:
+        result.append('%d days' % (delta.days,))
+    if delta.seconds > 0:
+        hours = delta.seconds / 3600
+        if hours > 0:
+            result.append('%d hours' % (hours,))
+        minutes = (delta.seconds - hours * 3600) / 60
+        if minutes:
+            result.append('%d minutes' % (minutes,))
+        seconds = delta.seconds % 60
+        if seconds > 0:
+            result.append('%d seconds' % (seconds,))
+
+    if result:
+        return ', '.join(result)
+    else:
+        return 'super fast'
+
+
 def makeList(input):
     if isinstance(input, basestring):
         return [input]
@@ -243,8 +273,19 @@ def asyncSleep(delay):
     return d
 
 
+def check_functional_environment(config):
+    try:
+        locale.getdefaultlocale()
+    except KeyError:
+        config.error("\n".join([
+            "Your environment has incorrect locale settings. This means python cannot handle strings safely.",
+            "Please check 'LANG', 'LC_CTYPE', 'LC_ALL' and 'LANGUAGE' are either unset or set to a valid locale.",
+        ]))
+
+
 __all__ = [
     'naturalSort', 'now', 'formatInterval', 'ComparableMixin', 'json',
     'safeTranslate', 'none_or_str',
     'NotABranch', 'deferredLocked', 'SerializedInvocation', 'UTC',
-    'diffSets', 'makeList', 'in_reactor']
+    'diffSets', 'makeList', 'in_reactor', 'check_functional_environment',
+    'human_readable_delta']

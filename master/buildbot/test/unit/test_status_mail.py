@@ -13,8 +13,8 @@
 #
 # Copyright Buildbot Team Members
 
-import sys
 import re
+import sys
 
 from buildbot import config
 from buildbot.config import ConfigErrors
@@ -26,6 +26,7 @@ from buildbot.status.results import FAILURE
 from buildbot.status.results import SUCCESS
 from buildbot.status.results import WARNINGS
 from buildbot.test.fake import fakedb
+from buildbot.test.fake import fakemaster
 from buildbot.test.fake.fakebuild import FakeBuildStatus
 from buildbot.test.util.config import ConfigErrorsMixin
 from mock import Mock
@@ -70,6 +71,9 @@ class FakeSource:
 
 
 class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase):
+
+    def setUp(self):
+        self.master = fakemaster.make_master(testcase=self)
 
     def do_test_createEmail_cte(self, funnyChars, expEncoding):
         builds = [FakeBuildStatus(name='build')]
@@ -176,7 +180,13 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase):
             self.assertIn('application/octet-stream', txt)
         return d
 
+    def test_init_enforces_tags_and_builders_are_mutually_exclusive(self):
+        self.assertRaises(config.ConfigErrors,
+                          MailNotifier, 'from@example.org',
+                          tags=['fast', 'slow'], builders=['a', 'b'])
+
     def test_init_enforces_categories_and_builders_are_mutually_exclusive(self):
+        # categories are deprecated, but allow them until they're removed.
         self.assertRaises(config.ConfigErrors,
                           MailNotifier, 'from@example.org',
                           categories=['fast', 'slow'], builders=['a', 'b'])
@@ -185,11 +195,21 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase):
         self.assertRaisesConfigError("mode 'all' is not valid in an iterator and must be passed in as a separate string",
                                      lambda: MailNotifier('from@example.org', mode=['all']))
 
+    def test_builderAdded_ignores_unspecified_tags(self):
+        mn = MailNotifier('from@example.org', tags=['fast'])
+
+        builder = fakemaster.FakeBuilderStatus(self.master)
+        builder.setTags(['slow'])
+
+        self.assertEqual(None, mn.builderAdded('dummyBuilder', builder))
+        self.assert_(builder not in mn.watched)
+
     def test_builderAdded_ignores_unspecified_categories(self):
+        # categories are deprecated, but leave a test for it until we remove it
         mn = MailNotifier('from@example.org', categories=['fast'])
 
-        builder = Mock()
-        builder.category = 'slow'
+        builder = fakemaster.FakeBuilderStatus(self.master)
+        builder.setTags(['slow'])
 
         self.assertEqual(None, mn.builderAdded('dummyBuilder', builder))
         self.assert_(builder not in mn.watched)
@@ -197,10 +217,11 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase):
     def test_builderAdded_subscribes_to_all_builders_by_default(self):
         mn = MailNotifier('from@example.org')
 
-        builder = Mock()
-        builder.category = 'slow'
-        builder2 = Mock()
-        builder2.category = None
+        builder = fakemaster.FakeBuilderStatus(self.master)
+        builder.setTags(['slow'])
+
+        builder2 = fakemaster.FakeBuilderStatus(self.master)
+        # No tags set.
 
         self.assertEqual(mn, mn.builderAdded('dummyBuilder', builder))
         self.assertEqual(mn, mn.builderAdded('dummyBuilder2', builder2))
@@ -215,7 +236,7 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase):
 
         self.assertEqual(None, mn.buildFinished('dummyBuilder', build, SUCCESS))
 
-    def test_buildsetFinished_sends_email(self):
+    def test_buildsetComplete_sends_email(self):
         fakeBuildMessage = Mock()
         mn = MailNotifier('from@example.org',
                           buildSetSummary=True,
@@ -233,6 +254,7 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase):
         build1.finished = True
         build1.reason = "testReason"
         build1.getBuilder.return_value = builder1
+        build1.getResults.return_value = build1.results
 
         builder2 = Mock()
         builder2.getBuild = lambda number: build2
@@ -243,6 +265,7 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase):
         build2.finished = True
         build2.reason = "testReason"
         build2.getBuilder.return_value = builder1
+        build2.getResults.return_value = build2.results
 
         def fakeGetBuilder(buildername):
             return {"Builder1": builder1, "Builder2": builder2}[buildername]
@@ -268,11 +291,11 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase):
         mn.buildMessageDict.return_value = {"body": "body", "type": "text",
                                             "subject": "subject"}
 
-        mn.buildsetFinished(99, FAILURE)
+        mn._buildsetComplete(99, FAILURE)
         fakeBuildMessage.assert_called_with("(whole buildset)",
                                             [build1, build2], SUCCESS)
 
-    def test_buildsetFinished_doesnt_send_email(self):
+    def test_buildsetComplete_doesnt_send_email(self):
         fakeBuildMessage = Mock()
         mn = MailNotifier('from@example.org',
                           buildSetSummary=True,
@@ -300,6 +323,7 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase):
         build.finished = True
         build.reason = "testReason"
         build.getBuilder.return_value = builder
+        build.getResults.return_value = build.results
 
         self.db = fakedb.FakeDBConnector(self)
         self.db.insertTestData([fakedb.SourceStampSet(id=127),
@@ -319,7 +343,7 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase):
         mn.buildMessageDict.return_value = {"body": "body", "type": "text",
                                             "subject": "subject"}
 
-        mn.buildsetFinished(99, FAILURE)
+        mn._buildsetComplete(99, FAILURE)
         self.assertFalse(fakeBuildMessage.called)
 
     def test_getCustomMesgData_multiple_sourcestamps(self):
@@ -374,6 +398,7 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase):
         build.reason = "testReason"
         build.getLogs.return_value = []
         build.getBuilder.return_value = builder
+        build.getResults.return_value = build.results
 
         self.status = Mock()
         mn.master_status = Mock()
@@ -383,7 +408,7 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase):
         ss2 = FakeSource(revision='222333', codebase='testlib2')
         build.getSourceStamps.return_value = [ss1, ss2]
 
-        mn.buildsetFinished(99, FAILURE)
+        mn._buildsetComplete(99, FAILURE)
 
         self.assertTrue('revision' in self.passedAttrs, "No revision entry found in attrs")
         self.assertTrue(isinstance(self.passedAttrs['revision'], dict))
@@ -442,6 +467,7 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase):
         build.reason = "testReason"
         build.getLogs.return_value = []
         build.getBuilder.return_value = builder
+        build.getResults.return_value = build.results
 
         self.status = Mock()
         mn.master_status = Mock()
@@ -450,7 +476,7 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase):
         ss1 = FakeSource(revision='111222', codebase='testlib1')
         build.getSourceStamps.return_value = [ss1]
 
-        mn.buildsetFinished(99, FAILURE)
+        mn._buildsetComplete(99, FAILURE)
 
         self.assertTrue('builderName' in self.passedAttrs, "No builderName entry found in attrs")
         self.assertEqual(self.passedAttrs['builderName'], 'Builder')
@@ -458,12 +484,24 @@ class TestMailNotifier(ConfigErrorsMixin, unittest.TestCase):
         self.assertTrue(isinstance(self.passedAttrs['revision'], str))
         self.assertEqual(self.passedAttrs['revision'], '111222')
 
+    def test_buildFinished_ignores_unspecified_tags(self):
+        mn = MailNotifier('from@example.org', tags=['fast'])
+
+        build = FakeBuildStatus(name="build")
+        build.builder = fakemaster.FakeBuilderStatus(self.master)
+        build.builder.setTags(['slow'])
+        build.getBuilder = lambda: build.builder
+
+        self.assertEqual(None, mn.buildFinished('dummyBuilder', build, SUCCESS))
+
     def test_buildFinished_ignores_unspecified_categories(self):
+        # categories are deprecated, but test them until they're removed
         mn = MailNotifier('from@example.org', categories=['fast'])
 
         build = FakeBuildStatus(name="build")
-        build.builder = Mock()
-        build.builder.category = 'slow'
+        build.builder = fakemaster.FakeBuilderStatus(self.master)
+        build.builder.setTags(['slow'])
+        build.getBuilder = lambda: build.builder
 
         self.assertEqual(None, mn.buildFinished('dummyBuilder', build, SUCCESS))
 

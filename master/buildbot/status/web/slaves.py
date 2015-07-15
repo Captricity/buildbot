@@ -114,8 +114,8 @@ class OneBuildSlaveResource(HtmlResource, BuildLineMixin):
                     current_builds.append(self.get_line_values(request, cb))
 
         try:
-            max_builds = int(request.args.get('numbuilds')[0])
-        except:
+            max_builds = int(request.args.get('numbuilds', ['10'])[0])
+        except (TypeError, ValueError):
             max_builds = 10
 
         recent_builds = []
@@ -147,6 +147,7 @@ class OneBuildSlaveResource(HtmlResource, BuildLineMixin):
                         access_uri=slave.getAccessURI(),
                         admin=slave.getAdmin() or u'',
                         host=slave.getHost() or u'',
+                        info=slave.getInfoAsDict(),
                         slave_version=slave.getVersion(),
                         show_builder_column=True,
                         connect_count=connect_count))
@@ -164,7 +165,7 @@ class BuildSlavesResource(HtmlResource):
     def content(self, request, ctx):
         s = self.getStatus(request)
 
-        #?no_builders=1 disables build column
+        # ?no_builders=1 disables build column
         show_builder_column = not (request.args.get('no_builders', '0')[0]) == '1'
         ctx['show_builder_column'] = show_builder_column
 

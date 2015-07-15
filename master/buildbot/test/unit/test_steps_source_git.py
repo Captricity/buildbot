@@ -201,11 +201,14 @@ class TestGit(sourcesteps.SourceStepMixin, config.ConfigErrorsMixin, unittest.Te
                                         mode=None))
             + 0,
             ExpectShell(workdir='wkdir',
+                        command=['git', 'update-index', '--refresh'])
+            + 0,
+            ExpectShell(workdir='wkdir',
                         command=['git', 'apply', '--index', '-p', '1'],
                         initialStdin='patch')
             + 0,
             Expect('rmdir', dict(dir='wkdir/.buildbot-diff',
-                                 logEnviron=True))
+                                 logEnviron=True, timeout=1200))
             + 0,
             ExpectShell(workdir='wkdir',
                         command=['git', 'rev-parse', 'HEAD'])
@@ -255,6 +258,9 @@ class TestGit(sourcesteps.SourceStepMixin, config.ConfigErrorsMixin, unittest.Te
                                         reader=ExpectRemoteRef(_FileReader),
                                         slavedest='.buildbot-patched', workdir='wkdir',
                                         mode=None))
+            + 0,
+            ExpectShell(workdir='wkdir',
+                        command=['git', 'update-index', '--refresh'])
             + 0,
             ExpectShell(workdir='wkdir',
                         command=['git', 'apply', '--index', '-p', '1'],
@@ -925,7 +931,10 @@ class TestGit(sourcesteps.SourceStepMixin, config.ConfigErrorsMixin, unittest.Te
                         command=['git', 'reset', '--hard', 'FETCH_HEAD', '--'])
             + 0,
             ExpectShell(workdir='wkdir',
-                        command=['git', 'submodule', 'update', '--init', '--recursive'])
+                        command=['git', 'submodule', 'sync'])
+            + 0,
+            ExpectShell(workdir='wkdir',
+                        command=['git', 'submodule', 'update', '--init', '--recursive', '--force'])
             + 0,
             ExpectShell(workdir='wkdir',
                         command=['git', 'submodule', 'foreach', 'git', 'clean',
@@ -1665,6 +1674,37 @@ class TestGit(sourcesteps.SourceStepMixin, config.ConfigErrorsMixin, unittest.Te
         self.expectProperty('got_revision', 'f6ad368298bd941e934a41f3babc827b2aa95a1d', 'Git')
         return self.runStep()
 
+    def test_wkdir_doesnt_exist(self):
+        self.setupStep(
+            git.Git(repourl='http://github.com/buildbot/buildbot.git',
+                    mode='full'))
+        self.expectCommands(
+            ExpectShell(workdir='wkdir',
+                        command=['git', '--version'])
+            + ExpectShell.log('stdio',
+                              stdout='git version 1.7.5')
+            + 0,
+            Expect('stat', dict(file='wkdir/.buildbot-patched',
+                                logEnviron=True))
+            + 1,
+            Expect('listdir', {'dir': 'wkdir', 'logEnviron': True,
+                               'timeout': 1200})
+            + 1,
+            ExpectShell(workdir='wkdir',
+                        command=['git', 'clone',
+                                 'http://github.com/buildbot/buildbot.git',
+                                 '.'])
+            + 0,
+            ExpectShell(workdir='wkdir',
+                        command=['git', 'rev-parse', 'HEAD'])
+            + ExpectShell.log('stdio',
+                              stdout='f6ad368298bd941e934a41f3babc827b2aa95a1d')
+            + 0,
+        )
+        self.expectOutcome(result=SUCCESS, status_text=["update"])
+        self.expectProperty('got_revision', 'f6ad368298bd941e934a41f3babc827b2aa95a1d', 'Git')
+        return self.runStep()
+
     def test_getDescription(self):
         # clone of: test_mode_incremental
         # only difference is to set the getDescription property
@@ -1764,7 +1804,8 @@ class TestGit(sourcesteps.SourceStepMixin, config.ConfigErrorsMixin, unittest.Te
         self.expectNoProperty('commit-description')
         return self.runStep()
 
-    def setup_getDescription_test(self, setup_args, output_args, codebase=None):
+    def setup_getDescription_test(self, setup_args, output_args,
+                                  expect_head=True, codebase=None):
         # clone of: test_mode_full_clobber
         # only difference is to set the getDescription property
 
@@ -1807,7 +1848,7 @@ class TestGit(sourcesteps.SourceStepMixin, config.ConfigErrorsMixin, unittest.Te
             ExpectShell(workdir='wkdir',
                         command=['git', 'describe'] +
                                 output_args +
-                                ['HEAD'])
+                                (['HEAD'] if expect_head else []))
             + ExpectShell.log('stdio',
                               stdout='Tag-1234')
             + 0,
@@ -1903,28 +1944,40 @@ class TestGit(sourcesteps.SourceStepMixin, config.ConfigErrorsMixin, unittest.Te
     def test_getDescription_dirty(self):
         self.setup_getDescription_test(
             setup_args={'dirty': True},
-            output_args=['--dirty']
+            output_args=['--dirty'],
+            expect_head=False
         )
         return self.runStep()
 
     def test_getDescription_dirty_empty_str(self):
         self.setup_getDescription_test(
             setup_args={'dirty': ''},
-            output_args=['--dirty']
+            output_args=['--dirty'],
+            expect_head=False
         )
         return self.runStep()
 
     def test_getDescription_dirty_str(self):
         self.setup_getDescription_test(
             setup_args={'dirty': 'foo'},
-            output_args=['--dirty=foo']
+            output_args=['--dirty=foo'],
+            expect_head=False
         )
         return self.runStep()
 
     def test_getDescription_dirty_false(self):
         self.setup_getDescription_test(
             setup_args={'dirty': False},
-            output_args=[]
+            output_args=[],
+            expect_head=True
+        )
+        return self.runStep()
+
+    def test_getDescription_dirty_none(self):
+        self.setup_getDescription_test(
+            setup_args={'dirty': None},
+            output_args=[],
+            expect_head=True
         )
         return self.runStep()
 
